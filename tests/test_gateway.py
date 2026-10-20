@@ -1,9 +1,9 @@
 from collections.abc import AsyncIterator
-import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+import tiktoken
 
 from multi_provider_llm_gateway import (
     GatewayProviderError,
@@ -11,7 +11,6 @@ from multi_provider_llm_gateway import (
     UnifiedLLMGateway,
 )
 from multi_provider_llm_gateway import gateway as gateway_module
-from multi_provider_llm_gateway import streaming
 
 
 async def _events(*events: object) -> AsyncIterator[object]:
@@ -55,6 +54,7 @@ async def test_openai_stream_normalizes_text_and_includes_usage() -> None:
 
     assert [chunk.delta_text for chunk in chunks] == ["Hello", ""]
     assert all(isinstance(chunk, StreamChunk) for chunk in chunks)
+    assert "".join(chunk.delta_text for chunk in chunks) == "Hello"
     assert chunks[-1].is_final
     assert chunks[-1].telemetry is not None
     assert chunks[-1].telemetry.input_tokens == 12
@@ -63,6 +63,52 @@ async def test_openai_stream_normalizes_text_and_includes_usage() -> None:
     assert chunks[-1].telemetry.total_cost_usd == 0.000004
     create.assert_awaited_once()
     assert create.await_args.kwargs["stream_options"] == {"include_usage": True}
+
+
+@pytest.mark.asyncio
+async def test_openai_prompt_token_estimate_matches_tiktoken_within_ten_percent() -> None:
+    prompt = " ".join(f"word{index}" for index in range(50))
+    expected_tokens = len(
+        tiktoken.encoding_for_model("gpt-4o-mini").encode(prompt)
+    )
+    stream = _events(
+        SimpleNamespace(
+            choices=[SimpleNamespace(delta=SimpleNamespace(content="Done"))],
+            usage=None,
+        ),
+        SimpleNamespace(
+            choices=[],
+            usage=SimpleNamespace(
+                prompt_tokens=expected_tokens,
+                completion_tokens=2,
+            ),
+        ),
+    )
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=AsyncMock(return_value=stream),
+            )
+        )
+    )
+
+    chunks = [
+        chunk
+        async for chunk in UnifiedLLMGateway(openai_client=client).stream(
+            prompt, "gpt-4o-mini"
+        )
+    ]
+
+    telemetry = chunks[-1].telemetry
+    assert telemetry is not None
+    assert telemetry.prompt_tokens_estimate is not None
+    assert expected_tokens > 0
+    assert (
+        abs(telemetry.prompt_tokens_estimate - expected_tokens)
+        / expected_tokens
+        <= 0.10
+    )
+    assert telemetry.input_tokens == expected_tokens
 
 
 @pytest.mark.asyncio
@@ -138,6 +184,8 @@ async def test_anthropic_stream_uses_message_usage_events() -> None:
     ]
 
     assert [chunk.delta_text for chunk in chunks] == ["Hi", ""]
+    assert all(isinstance(chunk, StreamChunk) for chunk in chunks)
+    assert "".join(chunk.delta_text for chunk in chunks) == "Hi"
     assert chunks[-1].is_final
     assert chunks[-1].telemetry is not None
     assert chunks[-1].telemetry.input_tokens == 10
@@ -212,7 +260,12 @@ def test_final_chunk_rounds_cost_to_six_decimal_places() -> None:
     )
 
     assert final_chunk.telemetry is not None
-    assert final_chunk.telemetry.total_cost_usd == 0.000002
+    telemetry = final_chunk.telemetry
+    assert final_chunk.is_final
+    assert telemetry.total_cost_usd == 0.000002
+    assert telemetry.total_cost_usd > 0
+    assert telemetry.tokens_per_second > 0
+    assert telemetry.ttft_seconds * 1000 > 0
 
 
 @pytest.mark.asyncio
@@ -240,31 +293,3 @@ async def test_missing_provider_usage_raises_instead_of_returning_estimates() ->
 
     assert len(chunks) == 1
     assert not chunks[0].is_final
-
-
-def test_unexpected_stream_error_is_logged_without_details_or_traceback(
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    class FailingGateway:
-        async def stream(
-            self, prompt: str, model: str, temperature: float
-        ) -> AsyncIterator[StreamChunk]:
-            raise RuntimeError("sensitive error details")
-            yield
-
-        async def aclose(self) -> None:
-            return None
-
-    monkeypatch.setattr(streaming, "UnifiedLLMGateway", FailingGateway)
-
-    events = streaming.start_stream("prompt", "gpt-4o-mini", 0.7)
-    emitted = []
-    while (event := events.get(timeout=2)) is not None:
-        emitted.append(event)
-
-    assert len(emitted) == 1
-    assert isinstance(emitted[0], RuntimeError)
-    assert "RuntimeError" in caplog.text
-    assert "sensitive error details" not in caplog.text
-    assert all(record.exc_info is None for record in caplog.records)

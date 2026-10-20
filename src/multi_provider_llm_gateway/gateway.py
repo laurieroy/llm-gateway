@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+import os
 from time import perf_counter
 
 import anthropic
@@ -92,6 +93,10 @@ class UnifiedLLMGateway:
         try:
             client = self._openai_client
             if client is None:
+                if not os.getenv("OPENAI_API_KEY", "").strip():
+                    raise InvalidAPIKeyError(
+                        "OpenAI API key is missing or invalid."
+                    )
                 try:
                     client = AsyncOpenAI()
                 except openai.OpenAIError:
@@ -170,6 +175,10 @@ class UnifiedLLMGateway:
         try:
             client = self._anthropic_client
             if client is None:
+                if not os.getenv("ANTHROPIC_API_KEY", "").strip():
+                    raise InvalidAPIKeyError(
+                        "Anthropic API key is missing or invalid."
+                    )
                 try:
                     client = AsyncAnthropic()
                 except anthropic.AnthropicError:
