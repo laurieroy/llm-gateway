@@ -89,6 +89,12 @@ async def test_anthropic_stream_uses_message_usage_events() -> None:
     assert chunks[-1].telemetry.output_tokens == 4
     assert chunks[-1].telemetry.total_cost_usd == pytest.approx(0.000024)
     create.assert_awaited_once()
+    assert create.await_args.kwargs == {
+        "model": "claude-3-5-haiku",
+        "max_tokens": 4096,
+        "messages": [{"role": "user", "content": "Say hi"}],
+        "stream": True,
+    }
 
 
 @pytest.mark.asyncio

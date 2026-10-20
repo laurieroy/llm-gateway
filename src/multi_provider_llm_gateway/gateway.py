@@ -62,7 +62,7 @@ class UnifiedLLMGateway:
                 yield chunk
         else:
             async for chunk in self._stream_anthropic(
-                prompt, model, temperature, pricing, started_at
+                prompt, model, pricing, started_at
             ):
                 yield chunk
 
@@ -160,7 +160,6 @@ class UnifiedLLMGateway:
         self,
         prompt: str,
         model: str,
-        temperature: float,
         pricing: ModelPricing,
         started_at: float,
     ) -> AsyncGenerator[StreamChunk, None]:
@@ -183,7 +182,6 @@ class UnifiedLLMGateway:
                 model=model,
                 max_tokens=4096,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=temperature,
                 stream=True,
             )
             async for event in response:
