@@ -28,6 +28,12 @@ async def test_openai_stream_normalizes_text_and_includes_usage() -> None:
             usage=None,
         ),
         SimpleNamespace(
+            choices=[
+                SimpleNamespace(delta=SimpleNamespace(content=None))
+            ],
+            usage=None,
+        ),
+        SimpleNamespace(
             choices=[],
             usage=SimpleNamespace(prompt_tokens=12, completion_tokens=3),
         ),
@@ -73,6 +79,7 @@ async def test_anthropic_stream_uses_message_usage_events() -> None:
             type="message_delta",
             usage=SimpleNamespace(output_tokens=4),
         ),
+        SimpleNamespace(type="message_stop"),
     )
     create = AsyncMock(return_value=stream)
     client = SimpleNamespace(messages=SimpleNamespace(create=create))
