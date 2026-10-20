@@ -44,3 +44,17 @@ Every response ends with a final chunk containing provider-reported token counts
 
 Supported model IDs include `gpt-4o-mini`, `gpt-4o`,
 `claude-3-5-sonnet`, and `claude-3-5-haiku`. Dated model IDs beginning with these names use the same pricing entry. The pricing table is a static estimate and should be updated when provider rates change.
+
+## Streamlit web client
+
+Run the responsive client from the repository root:
+
+```bash
+uv run streamlit run src/multi_provider_llm_gateway/app.py
+```
+
+Choose a provider and model, enter a prompt, and adjust the temperature to
+stream a response. The sidebar updates TTFT, generation speed, token counts,
+and cost while the response is streaming. Live values are estimates; final
+token counts come from the provider, and cost is calculated from those counts
+using the gateway's configured pricing.
