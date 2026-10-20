@@ -63,3 +63,15 @@ def test_temperature_is_disabled_for_anthropic(
     assert "Anthropic's Messages API does not currently accept temperature" in (
         app.slider[0].help
     )
+
+
+def test_unexpected_stream_error_displays_safe_message() -> None:
+    app = AppTest.from_string(
+        "from multi_provider_llm_gateway.app import _render_stream_error\n"
+        "_render_stream_error(RuntimeError('sensitive error details'))"
+    ).run()
+
+    assert not app.exception
+    assert len(app.error) == 1
+    assert "failed unexpectedly" in app.error[0].value
+    assert "sensitive error details" not in app.error[0].value

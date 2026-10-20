@@ -43,6 +43,18 @@ def _missing_api_key_environment_variable(provider: str) -> str | None:
     )
 
 
+def _render_stream_error(error: Exception | None) -> None:
+    if error is None:
+        return
+    if isinstance(error, GatewayError):
+        st.error(str(error))
+        return
+    st.error(
+        "The request failed unexpectedly. Please check the server logs "
+        "and try again."
+    )
+
+
 def _render_dashboard(
     slots: list[DeltaGenerator],
     metrics: StreamMetrics | None = None,
@@ -154,12 +166,8 @@ def main() -> None:
     )
     st.write_stream(stream)
 
-    error = result.error
-    if isinstance(error, GatewayError):
-        st.error(str(error))
-    elif isinstance(error, Exception):
-        raise error
-    elif result.telemetry is None:
+    _render_stream_error(result.error)
+    if result.error is None and result.telemetry is None:
         st.error("The stream ended without final usage telemetry.")
 
 

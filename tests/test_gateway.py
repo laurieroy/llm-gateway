@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -9,6 +10,7 @@ from multi_provider_llm_gateway import (
     StreamChunk,
     UnifiedLLMGateway,
 )
+from multi_provider_llm_gateway import streaming
 
 
 async def _events(*events: object) -> AsyncIterator[object]:
@@ -122,3 +124,31 @@ async def test_missing_provider_usage_raises_instead_of_returning_estimates() ->
 
     assert len(chunks) == 1
     assert not chunks[0].is_final
+
+
+def test_unexpected_stream_error_is_logged_without_details_or_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class FailingGateway:
+        async def stream(
+            self, prompt: str, model: str, temperature: float
+        ) -> AsyncIterator[StreamChunk]:
+            raise RuntimeError("sensitive error details")
+            yield
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr(streaming, "UnifiedLLMGateway", FailingGateway)
+
+    events = streaming.start_stream("prompt", "gpt-4o-mini", 0.7)
+    emitted = []
+    while (event := events.get(timeout=2)) is not None:
+        emitted.append(event)
+
+    assert len(emitted) == 1
+    assert isinstance(emitted[0], RuntimeError)
+    assert "RuntimeError" in caplog.text
+    assert "sensitive error details" not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)

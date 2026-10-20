@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import queue
 import threading
 import time
@@ -10,6 +11,8 @@ import tiktoken
 from multi_provider_llm_gateway.gateway import UnifiedLLMGateway
 from multi_provider_llm_gateway.pricing import ModelPricing
 from multi_provider_llm_gateway.schemas import ChunkTelemetry, StreamChunk
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +48,10 @@ def start_stream(
         try:
             asyncio.run(produce())
         except Exception as error:
+            logger.error(
+                "LLM stream failed with unexpected exception type %s",
+                type(error).__name__,
+            )
             events.put(error)
         finally:
             events.put(None)
