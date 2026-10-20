@@ -260,10 +260,14 @@ class UnifiedLLMGateway:
         tokens_per_second = (
             output_tokens / generation_seconds if generation_seconds else 0.0
         )
-        total_cost_usd = (
-            input_tokens * pricing.input_usd_per_million_tokens
-            + output_tokens * pricing.output_usd_per_million_tokens
-        ) / 1_000_000
+        total_cost_usd = round(
+            (
+                input_tokens * pricing.input_usd_per_million_tokens
+                + output_tokens * pricing.output_usd_per_million_tokens
+            )
+            / 1_000_000,
+            6,
+        )
 
         return StreamChunk(
             delta_text="",

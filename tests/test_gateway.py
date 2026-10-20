@@ -10,6 +10,7 @@ from multi_provider_llm_gateway import (
     StreamChunk,
     UnifiedLLMGateway,
 )
+from multi_provider_llm_gateway import gateway as gateway_module
 from multi_provider_llm_gateway import streaming
 
 
@@ -59,9 +60,54 @@ async def test_openai_stream_normalizes_text_and_includes_usage() -> None:
     assert chunks[-1].telemetry.input_tokens == 12
     assert chunks[-1].telemetry.output_tokens == 3
     assert chunks[-1].telemetry.prompt_tokens_estimate is not None
-    assert chunks[-1].telemetry.total_cost_usd == pytest.approx(0.0000036)
+    assert chunks[-1].telemetry.total_cost_usd == 0.000004
     create.assert_awaited_once()
     assert create.await_args.kwargs["stream_options"] == {"include_usage": True}
+
+
+@pytest.mark.asyncio
+async def test_openai_ttft_runs_from_request_start_to_first_nonempty_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = _events(
+        SimpleNamespace(
+            choices=[SimpleNamespace(delta=SimpleNamespace(content=None))],
+            usage=None,
+        ),
+        SimpleNamespace(
+            choices=[SimpleNamespace(delta=SimpleNamespace(content=""))],
+            usage=None,
+        ),
+        SimpleNamespace(
+            choices=[SimpleNamespace(delta=SimpleNamespace(content="Hi"))],
+            usage=None,
+        ),
+        SimpleNamespace(
+            choices=[],
+            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=2),
+        ),
+    )
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=AsyncMock(return_value=stream),
+            )
+        )
+    )
+    clock = iter((100.0, 108.0, 112.0))
+    monkeypatch.setattr(gateway_module, "perf_counter", lambda: next(clock))
+
+    chunks = [
+        chunk
+        async for chunk in UnifiedLLMGateway(openai_client=client).stream(
+            "Prompt", "gpt-4o-mini"
+        )
+    ]
+
+    telemetry = chunks[-1].telemetry
+    assert telemetry is not None
+    assert telemetry.ttft_seconds == 8.0
+    assert telemetry.latency_seconds == 12.0
 
 
 @pytest.mark.asyncio
@@ -104,6 +150,69 @@ async def test_anthropic_stream_uses_message_usage_events() -> None:
         "messages": [{"role": "user", "content": "Say hi"}],
         "stream": True,
     }
+
+
+@pytest.mark.asyncio
+async def test_anthropic_ttft_runs_to_first_nonempty_text_delta(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = _events(
+        SimpleNamespace(
+            type="message_start",
+            message=SimpleNamespace(usage=SimpleNamespace(input_tokens=1)),
+        ),
+        SimpleNamespace(
+            type="content_block_delta",
+            delta=SimpleNamespace(type="text_delta", text=""),
+        ),
+        SimpleNamespace(
+            type="content_block_delta",
+            delta=SimpleNamespace(type="text_delta", text="Hi"),
+        ),
+        SimpleNamespace(
+            type="message_delta",
+            usage=SimpleNamespace(output_tokens=2),
+        ),
+        SimpleNamespace(type="message_stop"),
+    )
+    client = SimpleNamespace(
+        messages=SimpleNamespace(
+            create=AsyncMock(return_value=stream),
+        )
+    )
+    clock = iter((100.0, 108.0, 112.0))
+    monkeypatch.setattr(gateway_module, "perf_counter", lambda: next(clock))
+
+    chunks = [
+        chunk
+        async for chunk in UnifiedLLMGateway(anthropic_client=client).stream(
+            "Prompt", "claude-3-5-haiku"
+        )
+    ]
+
+    telemetry = chunks[-1].telemetry
+    assert telemetry is not None
+    assert telemetry.ttft_seconds == 8.0
+    assert telemetry.latency_seconds == 12.0
+
+
+def test_final_chunk_rounds_cost_to_six_decimal_places() -> None:
+    pricing = gateway_module.get_model_pricing("gpt-4o-mini")
+    assert pricing is not None
+
+    final_chunk = UnifiedLLMGateway._final_chunk(
+        provider="openai",
+        model="gpt-4o-mini",
+        pricing=pricing,
+        input_tokens=1,
+        output_tokens=3,
+        started_at=0.0,
+        completed_at=2.0,
+        first_token_at=1.0,
+    )
+
+    assert final_chunk.telemetry is not None
+    assert final_chunk.telemetry.total_cost_usd == 0.000002
 
 
 @pytest.mark.asyncio
