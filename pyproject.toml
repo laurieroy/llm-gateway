@@ -1,7 +1,7 @@
 [project]
 name = "multi-provider-llm-gateway"
 version = "0.1.0"
-description = "Add your description here"
+description = "Async OpenAI and Anthropic gateway with streaming responses and token, latency, and cost telemetry."
 readme = "README.md"
 authors = [
     { name = "Laurie Roy", email = "laurieroy.dev@gmail.com" }

@@ -1,60 +1,60 @@
 # Multi-provider LLM gateway
 
-An asynchronous streaming wrapper for the supported OpenAI and Anthropic models.
+An async gateway for streaming responses from OpenAI and Anthropic models, with a Streamlit web client for trying models and viewing generation telemetry.
 
-## Configuration
+## Features
 
-Set the API key for the provider you plan to use:
+- Stream responses from supported OpenAI and Anthropic models.
+- View time-to-first-token, generation speed, token counts, and estimated cost.
+- Configure and use either provider independently.
+
+## Requirements
+
+- Python 3.11 or later
+- [uv](https://docs.astral.sh/uv/)
+- An API key for the provider you want to use
+
+## Set up
+
+From the repository root, install the project dependencies:
+
+```bash
+uv sync
+```
+
+Create a local environment file from the example:
+
+```bash
+cp .env.example .env
+```
+
+Add the API key for the provider you plan to use to `.env`:
 
 ```dotenv
-OPENAI_API_KEY=...
-ANTHROPIC_API_KEY=...
+OPENAI_API_KEY=your_openai_key
+ANTHROPIC_API_KEY=your_anthropic_key
 ```
 
-The gateway creates each official async client lazily, so configuring one provider is sufficient when only using that provider. Call `await gateway.aclose()` when finished to close initialized clients.
+Only the key for the provider you select is required. Keep your `.env` file private; do not commit API keys.
 
-## Streaming
+## Run locally
 
-```python
-import asyncio
-
-from multi_provider_llm_gateway import UnifiedLLMGateway
-
-
-async def main() -> None:
-    gateway = UnifiedLLMGateway()
-    try:
-        async for chunk in gateway.stream(
-            "Explain async generators briefly.",
-            model="gpt-4o-mini",
-        ):
-            if chunk.is_final:
-                print("\nUsage:", chunk.telemetry)
-            else:
-                print(chunk.delta_text, end="", flush=True)
-    finally:
-        await gateway.aclose()
-
-
-asyncio.run(main())
-```
-
-Every response ends with a final chunk containing provider-reported token counts, latency, time-to-first-token, throughput, and estimated cost. OpenAI telemetry also includes `prompt_tokens_estimate`, a local tiktoken count of the prompt;
-`input_tokens` remains the provider-reported usage value.
-
-Supported model IDs include `gpt-4o-mini`, `gpt-4o`,
-`claude-3-5-sonnet`, and `claude-3-5-haiku`. Dated model IDs beginning with these names use the same pricing entry. The pricing table is a static estimate and should be updated when provider rates change.
-
-## Streamlit web client
-
-Run the responsive client from the repository root:
+Launch the Streamlit client from the repository root:
 
 ```bash
 uv run streamlit run src/multi_provider_llm_gateway/app.py
 ```
 
-Choose a provider and model, enter a prompt, and adjust the temperature to
-stream a response. The sidebar updates TTFT, generation speed, token counts,
-and cost while the response is streaming. Live values are estimates; final
-token counts come from the provider, and cost is calculated from those counts
-using the gateway's configured pricing.
+Choose a provider and model, enter a prompt, and submit to stream a response. The sidebar shows live estimates while generating; final token counts come from the provider. Cost is estimated using the project's configured model pricing, which may not reflect current provider rates.
+
+## Run tests
+
+Run the test suite from the repository root:
+
+```bash
+uv run pytest
+```
+
+## About
+
+Created for AD331 at North Seattle College, October 2026. Developed with assistance from AI coding agents, with a human guiding the work, reviewing changes, and validating behavior.
