@@ -7,7 +7,11 @@ import openai
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from multi_provider_llm_gateway import InvalidAPIKeyError, UnifiedLLMGateway
+from multi_provider_llm_gateway import (
+    GatewayProviderError,
+    InvalidAPIKeyError,
+    UnifiedLLMGateway,
+)
 from multi_provider_llm_gateway import gateway as gateway_module
 from multi_provider_llm_gateway import streaming
 
@@ -16,7 +20,7 @@ from multi_provider_llm_gateway import streaming
     ("provider", "environment_variable", "model"),
     [
         ("OpenAI", "OPENAI_API_KEY", "gpt-4o-mini"),
-        ("Anthropic", "ANTHROPIC_API_KEY", "claude-3-5-haiku"),
+        ("Anthropic", "ANTHROPIC_API_KEY", "claude-haiku-5-5"),
     ],
 )
 @pytest.mark.parametrize("api_key", [None, "", "   "])
@@ -43,7 +47,7 @@ async def test_missing_or_blank_api_key_raises_descriptive_error(
     ("provider", "model", "error_type"),
     [
         ("OpenAI", "gpt-4o-mini", openai.AuthenticationError),
-        ("Anthropic", "claude-3-5-haiku", anthropic.AuthenticationError),
+        ("Anthropic", "claude-haiku-5-5", anthropic.AuthenticationError),
     ],
 )
 @pytest.mark.asyncio
@@ -122,6 +126,32 @@ def test_unexpected_stream_error_is_logged_without_details_or_traceback(
     assert "RuntimeError" in caplog.text
     assert secret not in caplog.text
     assert all(record.exc_info is None for record in caplog.records)
+
+
+def test_gateway_stream_error_is_logged_with_sanitized_detail(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class FailingGateway:
+        async def stream(
+            self, prompt: str, model: str, temperature: float
+        ) -> AsyncIterator[object]:
+            raise GatewayProviderError(
+                "Anthropic request failed (status 404): model: foo"
+            )
+            yield
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr(streaming, "UnifiedLLMGateway", FailingGateway)
+
+    events = streaming.start_stream("prompt", "gpt-4o-mini", 0.7)
+    while events.get(timeout=2) is not None:
+        pass
+
+    assert "status 404" in caplog.text
+    assert "model: foo" in caplog.text
 
 
 def test_unexpected_stream_error_displays_safe_message() -> None:

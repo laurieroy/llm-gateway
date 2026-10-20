@@ -14,7 +14,14 @@ from multi_provider_llm_gateway.streaming import (
 
 MODEL_OPTIONS = {
     "OpenAI": ["gpt-4o-mini", "gpt-4o"],
-    "Anthropic": ["claude-3-5-sonnet", "claude-3-5-haiku"],
+    "Anthropic": [
+        "claude-sonnet-5-5",
+        "claude-haiku-5-5",
+        "claude-opus-5-5",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5",
+        "claude-opus-4-5",
+    ],
 }
 PROVIDER_API_KEY_ENV_VARS = {
     "OpenAI": "OPENAI_API_KEY",
@@ -121,15 +128,15 @@ def main() -> None:
         temperature = st.slider(
             "Temperature",
             min_value=0.0,
-            max_value=2.0,
+            max_value=1.0 if provider == "Anthropic" else 2.0,
             value=0.7,
             step=0.1,
-            disabled=provider == "Anthropic",
+            key=f"temperature_{provider.lower()}",
             help=(
-                "Controls variation in the response for OpenAI. Lower values "
-                "tend to be more predictable; higher values allow more varied "
-                "responses. Anthropic's Messages API does not currently accept "
-                "temperature, so this control is disabled for Anthropic."
+                "Controls variation in the response. Lower values tend to "
+                "be more predictable; higher values allow more varied "
+                "responses. Anthropic models accept temperatures from 0.0 "
+                "to 1.0; OpenAI models accept 0.0 to 2.0."
             ),
         )
         submitted = st.form_submit_button(

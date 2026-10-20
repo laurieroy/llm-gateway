@@ -50,16 +50,21 @@ def test_temperature_and_telemetry_have_help_text(
     assert all(metric.help for metric in app.metric)
 
 
-def test_temperature_is_disabled_for_anthropic(
+@pytest.mark.parametrize(
+    ("provider", "max_value"),
+    [("OpenAI", 2.0), ("Anthropic", 1.0)],
+)
+def test_temperature_range_matches_provider(
     monkeypatch: pytest.MonkeyPatch,
+    provider: str,
+    max_value: float,
 ) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
 
     app = AppTest.from_file(str(APP_PATH)).run()
-    app.selectbox[0].select("Anthropic").run()
+    app.selectbox[0].select(provider).run()
 
-    assert app.slider[0].disabled
-    assert "Anthropic's Messages API does not currently accept temperature" in (
-        app.slider[0].help
-    )
+    assert not app.slider[0].disabled
+    assert app.slider[0].min == 0.0
+    assert app.slider[0].max == max_value

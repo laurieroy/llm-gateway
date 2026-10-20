@@ -63,7 +63,7 @@ class UnifiedLLMGateway:
                 yield chunk
         else:
             async for chunk in self._stream_anthropic(
-                prompt, model, pricing, started_at
+                prompt, model, temperature, pricing, started_at
             ):
                 yield chunk
 
@@ -136,6 +136,10 @@ class UnifiedLLMGateway:
             raise ProviderConnectionError(
                 "Could not connect to the OpenAI API."
             ) from None
+        except openai.APIStatusError as error:
+            raise GatewayProviderError(
+                f"OpenAI request failed{self._status_error_suffix(error)}"
+            ) from None
         except openai.APIError:
             raise GatewayProviderError("OpenAI request failed.") from None
         except openai.OpenAIError:
@@ -165,6 +169,7 @@ class UnifiedLLMGateway:
         self,
         prompt: str,
         model: str,
+        temperature: float,
         pricing: ModelPricing,
         started_at: float,
     ) -> AsyncGenerator[StreamChunk, None]:
@@ -191,6 +196,7 @@ class UnifiedLLMGateway:
                 model=model,
                 max_tokens=4096,
                 messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
                 stream=True,
             )
             async for event in response:
@@ -222,6 +228,10 @@ class UnifiedLLMGateway:
             raise ProviderConnectionError(
                 "Could not connect to the Anthropic API."
             ) from None
+        except anthropic.APIStatusError as error:
+            raise GatewayProviderError(
+                f"Anthropic request failed{self._status_error_suffix(error)}"
+            ) from None
         except anthropic.APIError:
             raise GatewayProviderError("Anthropic request failed.") from None
         except anthropic.AnthropicError:
@@ -245,6 +255,20 @@ class UnifiedLLMGateway:
             completed_at=completed_at,
             first_token_at=first_token_at,
         )
+
+    @staticmethod
+    def _status_error_suffix(error: Exception) -> str:
+        status_code = getattr(error, "status_code", None)
+        detail = ""
+        body = getattr(error, "body", None)
+        if isinstance(body, dict):
+            inner = body.get("error")
+            if isinstance(inner, dict) and isinstance(
+                inner.get("message"), str
+            ):
+                detail = inner["message"]
+        suffix = f" (status {status_code})" if status_code is not None else ""
+        return f"{suffix}: {detail}" if detail else suffix
 
     @staticmethod
     def _final_chunk(

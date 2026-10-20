@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 import tiktoken
 
-from multi_provider_llm_gateway.gateway import UnifiedLLMGateway
+from multi_provider_llm_gateway.gateway import GatewayError, UnifiedLLMGateway
 from multi_provider_llm_gateway.pricing import ModelPricing
 from multi_provider_llm_gateway.schemas import ChunkTelemetry, StreamChunk
 
@@ -48,10 +48,13 @@ def start_stream(
         try:
             asyncio.run(produce())
         except Exception as error:
-            logger.error(
-                "LLM stream failed with unexpected exception type %s",
-                type(error).__name__,
-            )
+            if isinstance(error, GatewayError):
+                logger.error("LLM stream failed: %s", error)
+            else:
+                logger.error(
+                    "LLM stream failed with unexpected exception type %s",
+                    type(error).__name__,
+                )
             events.put(error)
         finally:
             events.put(None)

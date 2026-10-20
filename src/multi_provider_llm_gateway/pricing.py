@@ -19,15 +19,35 @@ PRICING_USD_PER_MILLION: dict[str, ModelPricing] = {
         input_usd_per_million_tokens=2.50,
         output_usd_per_million_tokens=10.00,
     ),
-    "claude-3-5-sonnet": ModelPricing(
+    "claude-sonnet-5-5": ModelPricing(
+        provider="anthropic",
+        input_usd_per_million_tokens=2.00,
+        output_usd_per_million_tokens=10.00,
+    ),
+    "claude-haiku-5-5": ModelPricing(
+        provider="anthropic",
+        input_usd_per_million_tokens=0.10,
+        output_usd_per_million_tokens=0.50,
+    ),
+    "claude-opus-5-5": ModelPricing(
+        provider="anthropic",
+        input_usd_per_million_tokens=4.00,
+        output_usd_per_million_tokens=20.00,
+    ),
+    "claude-sonnet-4-6": ModelPricing(
         provider="anthropic",
         input_usd_per_million_tokens=3.00,
         output_usd_per_million_tokens=15.00,
     ),
-    "claude-3-5-haiku": ModelPricing(
+    "claude-haiku-4-5": ModelPricing(
         provider="anthropic",
-        input_usd_per_million_tokens=0.80,
-        output_usd_per_million_tokens=4.00,
+        input_usd_per_million_tokens=1.00,
+        output_usd_per_million_tokens=5.00,
+    ),
+    "claude-opus-4-5": ModelPricing(
+        provider="anthropic",
+        input_usd_per_million_tokens=5.00,
+        output_usd_per_million_tokens=25.00,
     ),
 }
 

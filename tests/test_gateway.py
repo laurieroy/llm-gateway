@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import anthropic
 import pytest
 import tiktoken
 
@@ -179,7 +180,7 @@ async def test_anthropic_stream_uses_message_usage_events() -> None:
     chunks = [
         chunk
         async for chunk in UnifiedLLMGateway(anthropic_client=client).stream(
-            "Say hi", "claude-3-5-haiku"
+            "Say hi", "claude-haiku-5-5", temperature=0.3
         )
     ]
 
@@ -190,12 +191,13 @@ async def test_anthropic_stream_uses_message_usage_events() -> None:
     assert chunks[-1].telemetry is not None
     assert chunks[-1].telemetry.input_tokens == 10
     assert chunks[-1].telemetry.output_tokens == 4
-    assert chunks[-1].telemetry.total_cost_usd == pytest.approx(0.000024)
+    assert chunks[-1].telemetry.total_cost_usd == pytest.approx(0.000003)
     create.assert_awaited_once()
     assert create.await_args.kwargs == {
-        "model": "claude-3-5-haiku",
+        "model": "claude-haiku-5-5",
         "max_tokens": 4096,
         "messages": [{"role": "user", "content": "Say hi"}],
+        "temperature": 0.3,
         "stream": True,
     }
 
@@ -234,7 +236,7 @@ async def test_anthropic_ttft_runs_to_first_nonempty_text_delta(
     chunks = [
         chunk
         async for chunk in UnifiedLLMGateway(anthropic_client=client).stream(
-            "Prompt", "claude-3-5-haiku"
+            "Prompt", "claude-haiku-5-5"
         )
     ]
 
@@ -242,6 +244,36 @@ async def test_anthropic_ttft_runs_to_first_nonempty_text_delta(
     assert telemetry is not None
     assert telemetry.ttft_seconds == 8.0
     assert telemetry.latency_seconds == 12.0
+
+
+@pytest.mark.asyncio
+async def test_anthropic_status_error_surfaces_provider_detail() -> None:
+    response = SimpleNamespace(
+        request=object(),
+        status_code=404,
+        headers={},
+    )
+    provider_error = anthropic.NotFoundError(
+        "Error code: 404",
+        response=response,
+        body={
+            "type": "error",
+            "error": {
+                "type": "not_found_error",
+                "message": "model: claude-3-5-haiku",
+            },
+        },
+    )
+    create = AsyncMock(side_effect=provider_error)
+    client = SimpleNamespace(messages=SimpleNamespace(create=create))
+
+    with pytest.raises(
+        GatewayProviderError, match="status 404.*claude-3-5-haiku"
+    ):
+        async for _ in UnifiedLLMGateway(anthropic_client=client).stream(
+            "Say hi", "claude-haiku-5-5"
+        ):
+            pass
 
 
 def test_final_chunk_rounds_cost_to_six_decimal_places() -> None:
