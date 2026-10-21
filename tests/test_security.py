@@ -131,7 +131,7 @@ async def test_status_error_provider_detail_is_scrubbed() -> None:
     assert exc_info.value.status_code == 400
 
 
-def test_unexpected_stream_error_is_logged_without_details_or_traceback(
+def test_unexpected_stream_error_logs_module_and_traceback_without_message(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -157,8 +157,43 @@ def test_unexpected_stream_error_is_logged_without_details_or_traceback(
     assert len(emitted) == 1
     assert isinstance(emitted[0], RuntimeError)
     assert "RuntimeError" in caplog.text
+    assert "expected_gateway_error=GatewayError@" in caplog.text
+    assert "exception_mro=" in caplog.text
+    assert "traceback=" in caplog.text
     assert secret not in caplog.text
     assert all(record.exc_info is None for record in caplog.records)
+
+
+def test_same_named_provider_error_logs_its_distinct_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class GatewayProviderError(Exception):
+        pass
+
+    class FailingGateway:
+        async def stream(
+            self, prompt: str, model: str, temperature: float
+        ) -> AsyncIterator[object]:
+            raise GatewayProviderError("provider failed")
+            yield
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr(streaming, "UnifiedLLMGateway", FailingGateway)
+
+    events = streaming.start_stream("prompt", "gpt-4o-mini", 0.7)
+    emitted = []
+    while (event := events.get(timeout=2)) is not None:
+        emitted.append(event)
+
+    assert len(emitted) == 1
+    assert type(emitted[0]).__name__ == "GatewayProviderError"
+    assert "test_security" in caplog.text
+    assert "exception_mro=" in caplog.text
+    assert "traceback=" in caplog.text
+    assert "GatewayError@" in caplog.text
 
 
 def test_gateway_stream_error_is_logged_with_sanitized_detail(

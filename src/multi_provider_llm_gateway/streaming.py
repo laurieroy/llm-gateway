@@ -1,8 +1,10 @@
 import asyncio
 import logging
 import queue
+import sys
 import threading
 import time
+import traceback
 from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass
 
@@ -71,9 +73,28 @@ def start_stream(
             if isinstance(error, GatewayError):
                 logger.error("LLM stream failed: %s", error)
             else:
+                error_type = type(error)
+                error_module = sys.modules.get(error_type.__module__)
+                gateway_module = sys.modules.get(GatewayError.__module__)
+                traceback_summary = " <- ".join(
+                    f"{frame.filename}:{frame.lineno} in {frame.name}"
+                    for frame in traceback.extract_tb(error.__traceback__)
+                )
                 logger.error(
-                    "LLM stream failed with unexpected exception type %s",
-                    type(error).__name__,
+                    "LLM stream failed with unexpected exception type "
+                    "%s.%s (module_file=%s, expected_gateway_error=%s@%x "
+                    "from %s, exception_mro=%s, traceback=%s)",
+                    error_type.__module__,
+                    error_type.__qualname__,
+                    getattr(error_module, "__file__", "<unknown>"),
+                    GatewayError.__qualname__,
+                    id(GatewayError),
+                    getattr(gateway_module, "__file__", "<unknown>"),
+                    " -> ".join(
+                        f"{base.__module__}.{base.__qualname__}@{id(base):x}"
+                        for base in error_type.__mro__
+                    ),
+                    traceback_summary or "<no traceback>",
                 )
             events.put(error)
         finally:
