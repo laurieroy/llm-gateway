@@ -47,6 +47,8 @@ uv run streamlit run src/multi_provider_llm_gateway/app.py
 
 Choose a provider and model, enter a prompt, and submit to stream a response. The sidebar shows live estimates while generating; final token counts come from the provider. Cost is estimated using the project's configured model pricing, which may not reflect current provider rates.
 
+Set `LLM_GATEWAY_DEMO=1` to add a `Demo` provider that streams a canned response — useful for exercising the UI without API keys.
+
 ## Run tests
 
 Run the test suite from the repository root:

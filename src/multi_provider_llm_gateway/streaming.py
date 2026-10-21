@@ -3,7 +3,7 @@ import logging
 import queue
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass
 
 import tiktoken
@@ -31,18 +31,38 @@ class StreamResult:
     error: Exception | None = None
 
 
-def start_stream(
+async def _gateway_source(
     prompt: str, model: str, temperature: float
+) -> AsyncIterator[StreamChunk]:
+    gateway = UnifiedLLMGateway()
+    try:
+        async for chunk in gateway.stream(prompt, model, temperature):
+            yield chunk
+    finally:
+        await gateway.aclose()
+
+
+def start_stream(
+    prompt: str,
+    model: str,
+    temperature: float,
+    source: Callable[[], AsyncIterator[StreamChunk]] | None = None,
 ) -> queue.Queue[StreamChunk | Exception | None]:
+    """Feed an async chunk producer through a queue on a worker thread.
+
+    `source` defaults to the real gateway; tests and the demo provider can
+    inject any async iterator of StreamChunks and reuse the same plumbing.
+    """
     events: queue.Queue[StreamChunk | Exception | None] = queue.Queue()
+    factory = (
+        source
+        if source is not None
+        else lambda: _gateway_source(prompt, model, temperature)
+    )
 
     async def produce() -> None:
-        gateway = UnifiedLLMGateway()
-        try:
-            async for chunk in gateway.stream(prompt, model, temperature):
-                events.put(chunk)
-        finally:
-            await gateway.aclose()
+        async for chunk in factory():
+            events.put(chunk)
 
     def run() -> None:
         try:

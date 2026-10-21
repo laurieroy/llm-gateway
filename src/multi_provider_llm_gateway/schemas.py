@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -12,6 +14,9 @@ class ChunkTelemetry(BaseModel):
     tokens_per_second: float = Field(ge=0)
     total_cost_usd: float = Field(ge=0)
     prompt_tokens_estimate: int | None = Field(default=None, ge=0)
+    token_count_source: Literal["provider_api", "tiktoken_estimate"] = (
+        "provider_api"
+    )
 
 
 class StreamChunk(BaseModel):

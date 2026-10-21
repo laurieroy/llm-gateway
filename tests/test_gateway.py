@@ -3,11 +3,14 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import anthropic
+import openai
 import pytest
 import tiktoken
 
 from multi_provider_llm_gateway import (
     GatewayProviderError,
+    ProviderTimeoutError,
+    RateLimitExceededError,
     StreamChunk,
     UnifiedLLMGateway,
 )
@@ -269,11 +272,14 @@ async def test_anthropic_status_error_surfaces_provider_detail() -> None:
 
     with pytest.raises(
         GatewayProviderError, match="status 404.*claude-3-5-haiku"
-    ):
+    ) as exc_info:
         async for _ in UnifiedLLMGateway(anthropic_client=client).stream(
             "Say hi", "claude-haiku-5-5"
         ):
             pass
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.provider == "anthropic"
 
 
 def test_final_chunk_rounds_cost_to_six_decimal_places() -> None:
@@ -301,7 +307,7 @@ def test_final_chunk_rounds_cost_to_six_decimal_places() -> None:
 
 
 @pytest.mark.asyncio
-async def test_missing_provider_usage_raises_instead_of_returning_estimates() -> None:
+async def test_missing_provider_usage_falls_back_to_tiktoken_estimates() -> None:
     stream = _events(
         SimpleNamespace(
             choices=[
@@ -315,13 +321,134 @@ async def test_missing_provider_usage_raises_instead_of_returning_estimates() ->
             completions=SimpleNamespace(create=AsyncMock(return_value=stream)),
         )
     )
-    chunks: list[StreamChunk] = []
 
-    with pytest.raises(GatewayProviderError, match="without token usage"):
+    chunks = [
+        chunk
         async for chunk in UnifiedLLMGateway(openai_client=client).stream(
             "Say hello", "gpt-4o-mini"
-        ):
-            chunks.append(chunk)
+        )
+    ]
 
-    assert len(chunks) == 1
-    assert not chunks[0].is_final
+    final = chunks[-1]
+    assert final.is_final
+    assert final.telemetry is not None
+    assert final.telemetry.token_count_source == "tiktoken_estimate"
+    assert final.telemetry.input_tokens == (
+        final.telemetry.prompt_tokens_estimate
+    )
+    assert final.telemetry.input_tokens > 0
+    assert final.telemetry.output_tokens > 0
+    assert "".join(chunk.delta_text for chunk in chunks[:-1]) == "Hello"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_stream_estimates_output_tokens_when_usage_missing() -> None:
+    stream = _events(
+        SimpleNamespace(
+            type="message_start",
+            message=SimpleNamespace(usage=SimpleNamespace(input_tokens=4)),
+        ),
+        SimpleNamespace(
+            type="content_block_delta",
+            delta=SimpleNamespace(type="text_delta", text="cut off"),
+        ),
+    )
+    client = SimpleNamespace(
+        messages=SimpleNamespace(create=AsyncMock(return_value=stream))
+    )
+
+    chunks = [
+        chunk
+        async for chunk in UnifiedLLMGateway(anthropic_client=client).stream(
+            "Prompt", "claude-haiku-5-5"
+        )
+    ]
+
+    final = chunks[-1]
+    assert final.is_final
+    assert final.telemetry is not None
+    assert final.telemetry.input_tokens == 4
+    assert final.telemetry.output_tokens > 0
+    assert final.telemetry.token_count_source == "tiktoken_estimate"
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_error_carries_retry_after() -> None:
+    response = SimpleNamespace(
+        request=object(),
+        status_code=429,
+        headers={"retry-after": "2.5"},
+    )
+    create = AsyncMock(
+        side_effect=openai.RateLimitError(
+            "slow down", response=response, body=None
+        )
+    )
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+
+    with pytest.raises(RateLimitExceededError) as exc_info:
+        async for _ in UnifiedLLMGateway(openai_client=client).stream(
+            "Hi", "gpt-4o-mini"
+        ):
+            pass
+
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.retry_after == 2.5
+    assert exc_info.value.provider == "openai"
+    assert exc_info.value.model == "gpt-4o-mini"
+
+
+@pytest.mark.asyncio
+async def test_timeout_error_maps_to_provider_timeout() -> None:
+    create = AsyncMock(
+        side_effect=openai.APITimeoutError(request=SimpleNamespace())
+    )
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+
+    with pytest.raises(ProviderTimeoutError, match="timed out"):
+        async for _ in UnifiedLLMGateway(openai_client=client).stream(
+            "Hi", "gpt-4o-mini"
+        ):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_anthropic_input_tokens_include_cache_tokens() -> None:
+    stream = _events(
+        SimpleNamespace(
+            type="message_start",
+            message=SimpleNamespace(
+                usage=SimpleNamespace(
+                    input_tokens=9,
+                    cache_creation_input_tokens=2,
+                    cache_read_input_tokens=1,
+                )
+            ),
+        ),
+        SimpleNamespace(
+            type="content_block_delta",
+            delta=SimpleNamespace(type="text_delta", text="Hi"),
+        ),
+        SimpleNamespace(
+            type="message_delta",
+            usage=SimpleNamespace(output_tokens=3),
+        ),
+    )
+    client = SimpleNamespace(
+        messages=SimpleNamespace(create=AsyncMock(return_value=stream))
+    )
+
+    chunks = [
+        chunk
+        async for chunk in UnifiedLLMGateway(anthropic_client=client).stream(
+            "Prompt", "claude-haiku-5-5"
+        )
+    ]
+
+    assert chunks[-1].telemetry is not None
+    assert chunks[-1].telemetry.input_tokens == 12
+    assert chunks[-1].telemetry.token_count_source == "provider_api"

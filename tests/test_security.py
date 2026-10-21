@@ -79,13 +79,13 @@ async def test_provider_authentication_errors_redact_api_key(
             )
         )
         monkeypatch.setattr(
-            gateway_module, "AsyncOpenAI", lambda: client
+            gateway_module, "AsyncOpenAI", lambda **_kwargs: client
         )
     else:
         monkeypatch.setenv("ANTHROPIC_API_KEY", malformed_api_key)
         client = SimpleNamespace(messages=SimpleNamespace(create=create))
         monkeypatch.setattr(
-            gateway_module, "AsyncAnthropic", lambda: client
+            gateway_module, "AsyncAnthropic", lambda **_kwargs: client
         )
 
     with pytest.raises(InvalidAPIKeyError) as exc_info:
@@ -96,6 +96,39 @@ async def test_provider_authentication_errors_redact_api_key(
     assert secret not in str(exc_info.value)
     assert secret not in repr(exc_info.value)
     assert exc_info.value.__suppress_context__
+
+
+@pytest.mark.asyncio
+async def test_status_error_provider_detail_is_scrubbed() -> None:
+    secret = "sk-livekey987654321"
+    response = SimpleNamespace(
+        request=object(),
+        status_code=400,
+        headers={},
+    )
+    provider_error = anthropic.BadRequestError(
+        "Error code: 400",
+        response=response,
+        body={
+            "type": "error",
+            "error": {
+                "type": "invalid_request_error",
+                "message": f"bad credential {secret} provided",
+            },
+        },
+    )
+    create = AsyncMock(side_effect=provider_error)
+    client = SimpleNamespace(messages=SimpleNamespace(create=create))
+
+    with pytest.raises(GatewayProviderError) as exc_info:
+        async for _ in UnifiedLLMGateway(anthropic_client=client).stream(
+            "Say hi", "claude-haiku-5-5"
+        ):
+            pass
+
+    assert secret not in str(exc_info.value)
+    assert "***" in str(exc_info.value)
+    assert exc_info.value.status_code == 400
 
 
 def test_unexpected_stream_error_is_logged_without_details_or_traceback(

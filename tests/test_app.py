@@ -1,7 +1,12 @@
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
 from streamlit.testing.v1 import AppTest
+
+from multi_provider_llm_gateway import streaming
+from multi_provider_llm_gateway.demo import DEMO_MODEL, demo_stream
+from multi_provider_llm_gateway.schemas import StreamChunk
 
 APP_PATH = (
     Path(__file__).parents[1]
@@ -68,3 +73,45 @@ def test_temperature_range_matches_provider(
     assert not app.slider[0].disabled
     assert app.slider[0].min == 0.0
     assert app.slider[0].max == max_value
+
+
+def test_demo_provider_hidden_unless_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("LLM_GATEWAY_DEMO", raising=False)
+    app = AppTest.from_file(str(APP_PATH)).run()
+    assert "Demo" not in app.selectbox[0].options
+
+    monkeypatch.setenv("LLM_GATEWAY_DEMO", "1")
+    app = AppTest.from_file(str(APP_PATH)).run()
+    assert "Demo" in app.selectbox[0].options
+
+
+@pytest.mark.asyncio
+async def test_demo_stream_emits_text_then_final_telemetry() -> None:
+    chunks = [chunk async for chunk in demo_stream("hi there")]
+
+    assert chunks[-1].is_final
+    assert "".join(chunk.delta_text for chunk in chunks[:-1])
+    telemetry = chunks[-1].telemetry
+    assert telemetry is not None
+    assert telemetry.output_tokens > 0
+    assert telemetry.token_count_source == "tiktoken_estimate"
+    assert telemetry.total_cost_usd == 0.0
+
+
+def test_start_stream_consumes_custom_source() -> None:
+    async def source() -> AsyncIterator[StreamChunk]:
+        yield StreamChunk(
+            delta_text="hi",
+            provider="demo",
+            model=DEMO_MODEL,
+            is_final=False,
+        )
+
+    events = streaming.start_stream("prompt", DEMO_MODEL, 0.7, source)
+    emitted = []
+    while (event := events.get(timeout=2)) is not None:
+        emitted.append(event)
+
+    assert [chunk.delta_text for chunk in emitted] == ["hi"]

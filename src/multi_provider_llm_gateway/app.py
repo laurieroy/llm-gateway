@@ -5,7 +5,15 @@ from dotenv import load_dotenv
 from streamlit.delta_generator import DeltaGenerator
 
 from multi_provider_llm_gateway import GatewayError
-from multi_provider_llm_gateway.pricing import get_model_pricing
+from multi_provider_llm_gateway.demo import (
+    DEMO_MODEL,
+    DEMO_PROVIDER,
+    demo_stream,
+)
+from multi_provider_llm_gateway.pricing import (
+    ModelPricing,
+    get_model_pricing,
+)
 from multi_provider_llm_gateway.streaming import (
     StreamMetrics,
     start_stream,
@@ -41,13 +49,28 @@ TELEMETRY_HELP = (
 )
 
 
+DEMO_PRICING = ModelPricing(
+    provider="demo",
+    input_usd_per_million_tokens=0.0,
+    output_usd_per_million_tokens=0.0,
+)
+
+
+def _provider_catalog() -> dict[str, list[str]]:
+    """Real providers, plus the canned demo stream when LLM_GATEWAY_DEMO is set."""
+    catalog = dict(MODEL_OPTIONS)
+    if os.getenv("LLM_GATEWAY_DEMO", "").lower() in ("1", "true", "yes", "on"):
+        catalog[DEMO_PROVIDER] = [DEMO_MODEL]
+    return catalog
+
+
 def _missing_api_key_environment_variable(provider: str) -> str | None:
-    environment_variable = PROVIDER_API_KEY_ENV_VARS[provider]
-    return (
-        environment_variable
-        if not os.getenv(environment_variable, "").strip()
-        else None
-    )
+    environment_variable = PROVIDER_API_KEY_ENV_VARS.get(provider)
+    if environment_variable is None or os.getenv(
+        environment_variable, ""
+    ).strip():
+        return None
+    return environment_variable
 
 
 def _render_stream_error(error: Exception | None) -> None:
@@ -113,11 +136,12 @@ def main() -> None:
         "Cost uses the gateway's configured model pricing."
     )
 
+    catalog = _provider_catalog()
     provider_column, model_column = st.columns(2)
     with provider_column:
-        provider = st.selectbox("Provider", list(MODEL_OPTIONS))
+        provider = st.selectbox("Provider", list(catalog))
     with model_column:
-        model = st.selectbox("Model", MODEL_OPTIONS[provider])
+        model = st.selectbox("Model", catalog[provider])
 
     with st.form("generation_form"):
         prompt = st.text_area(
@@ -157,13 +181,23 @@ def main() -> None:
         )
         return
 
-    pricing = get_model_pricing(model)
+    pricing = (
+        DEMO_PRICING
+        if provider == DEMO_PROVIDER
+        else get_model_pricing(model)
+    )
     if pricing is None:
         st.error(f"No pricing is configured for {model}.")
         return
 
     st.subheader("Response")
-    events = start_stream(prompt, model, temperature)
+    events = (
+        start_stream(
+            prompt, model, temperature, lambda: demo_stream(prompt, model)
+        )
+        if provider == DEMO_PROVIDER
+        else start_stream(prompt, model, temperature)
+    )
     stream, result = stream_response(
         events,
         prompt,
@@ -176,6 +210,13 @@ def main() -> None:
     _render_stream_error(result.error)
     if result.error is None and result.telemetry is None:
         st.error("The stream ended without final usage telemetry.")
+    if result.telemetry is not None and (
+        result.telemetry.token_count_source == "tiktoken_estimate"
+    ):
+        st.caption(
+            "Token counts are local estimates — the provider did not "
+            "report usage for this request."
+        )
 
 
 if __name__ == "__main__":
