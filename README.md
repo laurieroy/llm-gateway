@@ -2,6 +2,29 @@
 
 An async gateway for streaming responses from OpenAI and Anthropic models, with a Streamlit web client for trying models and viewing generation telemetry.
 
+## Project overview & architecture
+
+The Streamlit client sends the prompt and selected model to a background worker. The worker streams normalized chunks from the gateway into a queue; the client displays the response and updates telemetry as chunks arrive. The gateway routes requests to the matching provider and attaches usage and timing data to the final chunk.
+
+```mermaid
+flowchart LR
+    linkStyle default stroke-width: 2px
+
+    User[User] -->|Prompt and model| UI[Streamlit app]
+    UI -->|Start stream| Worker[Worker thread]
+
+    Worker -->|Live request| Gateway[Async LLM gateway]
+    Gateway <-->|Request and response stream| ProviderAPI[OpenAI or Anthropic API]
+    Gateway -->|Normalized chunks and final telemetry| Queue[Thread-safe event queue]
+
+    Worker -->|Demo selected| Demo[Canned demo stream]
+    Demo -->|Chunks and synthetic telemetry| Queue
+
+    Queue --> Consumer[Stream consumer]
+    Consumer -->|Streamed text and telemetry| UI
+    Gateway -.->|Pricing and API key| Config[Pricing and environment]
+```
+
 ## Features
 
 - Stream responses from supported OpenAI and Anthropic models.
