@@ -5,13 +5,14 @@ I had been using windsurf for a while. It switched to being Devin this summer, a
 
 I also started the project in VS-code. But on reflection of the requirements, noted that it was not using FastAPI and started over in devin. It built the project similarly, so I merged the two together.
 
-Also, turns out I was coming down with a cold so I wasn't thinking as clearly as I should have been. 
+Also, turns out I was coming down with a cold so I wasn't thinking as clearly as I should have been.
 
 Log of some of the prompts sent to the AI pair-programmer (Devin, SWE-2) and VS-code (auto)
 
 ## Initial Prompt
+
 > (from assignment spec)
-You are an expert Python AI Infrastructure Engineer. I need an asynchronous, streaming multi-provider SDK wrapper supporting both OpenAI (e.g., gpt-4o-mini, gpt-4o) and Anthropic (e.g., claude-3-5-sonnet, claude-3-5-haiku) or the most recent available models.
+> You are an expert Python AI Infrastructure Engineer. I need an asynchronous, streaming multi-provider SDK wrapper supporting both OpenAI (e.g., gpt-4o-mini, gpt-4o) and Anthropic (e.g., claude-3-5-sonnet, claude-3-5-haiku) or the most recent available models.
 
 Requirements:
 
@@ -41,10 +42,11 @@ Error Handling:
 
 Handle rate limits, invalid API keys, and connection errors by raising typed, custom domain exceptions (e.g., GatewayProviderError, RateLimitExceededError).
 Do not leak raw API keys or unhandled stack traces in logs or outputs.
- 
+
 Provide clean, production-ready code split into schemas.py, pricing.py, and gateway.py.
 
 ## Asked AI abut bugs
+
 - searched manually for openai.OpenAI() and openai.AsyncOpenAI()
 - Asked AI to about the OpenAI bug and Anthropic bug.
 - Checked Telemetry & Timing Drift
@@ -57,6 +59,21 @@ Provide clean, production-ready code split into schemas.py, pricing.py, and gate
    It does (0.0–1.0).
 2. Retired model IDs — draft catalog listed `claude-3-5-sonnet` /
    `claude-3-5-haiku`, which return 404 `not_found_error` from the Anthropic API.
+   Replaced:
+   ```
+      "Anthropic": ["claude-3-5-sonnet", "claude-3-5-haiku"],
+   ```
+   with:
+   ```
+   "Anthropic": [
+     "claude-sonnet-5-5",
+     "claude-haiku-5-5",
+     "claude-opus-5-5",
+     "claude-sonnet-4-6",
+     "claude-haiku-4-5",
+     "claude-opus-4-5",
+   ],
+   ```
 3. Over-broad error handling — `except anthropic.APIError` flattened
    `NotFoundError` into a generic message, hiding the status code and provider
    detail that made the retired-model bug diagnosable.
@@ -89,6 +106,8 @@ Anthropic based on an incorrect claim that the Messages API doesn't accept
 enabled the slider with the correct 0.0–1.0 range (vs. OpenAI's 0.0–2.0), and
 updated tests.
 
+![temperature diff](docs/images/temperature-diff.png)
+
 ### Prompt
 
 > can open ai really adjust temperature from 0-2
@@ -109,13 +128,9 @@ command lists them, so they were kept).
 
 ** At this point I rebuilt the project **
 
-
-
-
 ### Prompt
 
-> compare this repo to ../ad331/multi-provider-llm-gateway is one better?  Would you review both projects as far as which is better code style form a season python developer view, has better security and cleaner
-
+> compare this repo to ../ad331/multi-provider-llm-gateway is one better? Would you review both projects as far as which is better code style form a season python developer view, has better security and cleaner
 
 ### Prompt
 
@@ -132,19 +147,22 @@ when a stream ends without usage events, `asyncio.to_thread` for encoding, new
 param on `start_stream`. Test suite grew 24 → 32 tests, all passing.
 
 ### Prompt
-> in general, please review this readme as you were a hiring professional with 
+
+> in general, please review this readme as you were a hiring professional with
 > python knowledge. what would you want to see? not see?
 
 > go ahead and rewrite the readme with your suggestions. I'll update it later with a live link and screenshot. > For right now i don't need to show implementation details. Add how to set up, run locally, run tests
 > Move the AI assistance to bottom. perhaps add for AD331, North Seattle College, Oct 2026
 
 ### Prompt
+
 > confirm tests: test_gateway.py:
 > Test 1: Unified Stream Protocol: Assert that streaming from both providers yields valid StreamChunk objects and concatenates into the expected text response.
 > Test 2: Token Count Validation: Feed a deterministic prompt (e.g., 50 specific words) and assert that recorded prompt tokens match tiktoken calculations within a ± 10% tolerance.
 > Test 3: Telemetry Sanity: Assert that when is_final=True, total_cost_usd > 0, tokens_per_second > 0, and ttft_ms > 0.
 
 ### Prompt
+
 > Also create test_security.py, move security type tests there.
 > be sure to cover
 > Missing Key Handling: Assert that missing or malformed environment variables raise a descriptive AuthenticationError rather than crashing with unhandled exceptions.
@@ -152,6 +170,7 @@ param on `start_stream`. Test suite grew 24 → 32 tests, all passing.
 > Secret Redaction: Verify that logging or string representations of exceptions never output raw API key substrings.
 
 ### Prompt
+
 > thanks. are there any security gaps not checked
 
 ### Prompt
@@ -172,5 +191,6 @@ trailing space on `.env` in `.gitignore`.
 
 **Outcome:** This file.
 
-### Prompt 
+### Prompt
+
 > Please add **Project Overview & Architecture Diagram:** A Mermaid.js sequence or flow diagram illustrating the client-to-gateway-to-provider streaming pipeline.

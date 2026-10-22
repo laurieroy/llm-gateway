@@ -107,6 +107,14 @@ Review of the initial AI-generated implementation identified several issues that
 These examples summarize issues found during development; they are not a claim that the project has undergone a comprehensive security or production-readiness audit.
 
 ### Sample diffs
+![temperature diff](docs/images/temperature-diff.png)
+The temperature update
+
+![Update Claude to 5.5](docs/images/changed_claude3-5to5-5.png)
+Update Claude sonnet model from 3.5 to 5.5
+
+![Update Claude haiku to 4.5](docs/images/switchedOut_claude-3-5-haiku_to_claude-haiku-4-5.png)
+Update Claude haiku model from 3.5 to 4.5
 
 
 ## About
