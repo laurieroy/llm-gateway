@@ -42,6 +42,23 @@ def test_missing_provider_api_key_shows_actionable_error(
     assert any(environment_variable in error.value for error in app.error)
 
 
+def test_empty_prompt_shows_validation_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+
+    app = AppTest.from_file(str(APP_PATH)).run()
+    app.text_area[0].set_value("  \n")
+    app.form_submit_button[0].click().run()
+
+    assert not app.exception
+    assert any(
+        "Enter a prompt before generating a response." in warning.value
+        for warning in app.warning
+    )
+
+
 def test_temperature_and_telemetry_have_help_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

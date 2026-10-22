@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import Future, ThreadPoolExecutor
 import logging
 import queue
 import sys
@@ -15,6 +16,9 @@ from multi_provider_llm_gateway.pricing import ModelPricing
 from multi_provider_llm_gateway.schemas import ChunkTelemetry, StreamChunk
 
 logger = logging.getLogger(__name__)
+_TOKENIZER_EXECUTOR = ThreadPoolExecutor(
+    max_workers=4, thread_name_prefix="llm-tokenizer"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +108,14 @@ def start_stream(
     return events
 
 
+def _count_tokens(model: str, text: str) -> int:
+    try:
+        tokenizer = tiktoken.encoding_for_model(model)
+    except KeyError:
+        tokenizer = tiktoken.get_encoding("cl100k_base")
+    return len(tokenizer.encode(text))
+
+
 def stream_response(
     events: queue.Queue[StreamChunk | Exception | None],
     prompt: str,
@@ -111,20 +123,25 @@ def stream_response(
     pricing: ModelPricing,
     on_metrics: Callable[[StreamMetrics], None],
 ) -> tuple[Iterator[str], StreamResult]:
-    try:
-        tokenizer = tiktoken.encoding_for_model(model)
-    except KeyError:
-        tokenizer = tiktoken.get_encoding("cl100k_base")
-
-    prompt_tokens = len(tokenizer.encode(prompt))
     result = StreamResult()
     response = ""
     started_at = time.perf_counter()
     first_token_at: float | None = None
-    last_metrics_update = 0.0
+    prompt_tokens: int | None = None
+    last_metrics_update: float | None = None
+    prompt_tokens_future: Future[int] | None = _TOKENIZER_EXECUTOR.submit(
+        _count_tokens, model, prompt
+    )
+    completion_tokens_future: Future[int] | None = None
+    completion_snapshot_at: float | None = None
 
     def generate() -> Iterator[str]:
-        nonlocal response, first_token_at, last_metrics_update
+        nonlocal response
+        nonlocal first_token_at
+        nonlocal last_metrics_update
+        nonlocal prompt_tokens_future
+        nonlocal completion_tokens_future
+        nonlocal completion_snapshot_at
 
         while True:
             event = events.get()
@@ -147,6 +164,12 @@ def stream_response(
                             is_estimate=False,
                         )
                     )
+                if prompt_tokens_future is not None:
+                    prompt_tokens_future.cancel()
+                    prompt_tokens_future = None
+                if completion_tokens_future is not None:
+                    completion_tokens_future.cancel()
+                    completion_tokens_future = None
                 continue
 
             response += event.delta_text
@@ -154,23 +177,57 @@ def stream_response(
             if first_token_at is None:
                 first_token_at = now
 
-            if now - last_metrics_update >= 0.2:
-                completion_tokens = len(tokenizer.encode(response))
-                generation_seconds = max(now - first_token_at, 0.001)
-                cost_usd = (
-                    prompt_tokens * pricing.input_usd_per_million_tokens
-                    + completion_tokens * pricing.output_usd_per_million_tokens
-                ) / 1_000_000
-                on_metrics(
-                    StreamMetrics(
-                        ttft_ms=(first_token_at - started_at) * 1000,
-                        tokens_per_second=completion_tokens / generation_seconds,
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
-                        cost_usd=cost_usd,
-                        is_estimate=True,
+            if (
+                prompt_tokens_future is not None
+                and prompt_tokens_future.done()
+            ):
+                prompt_tokens = prompt_tokens_future.result()
+                prompt_tokens_future = None
+
+            if (
+                completion_tokens_future is not None
+                and completion_tokens_future.done()
+            ):
+                completion_tokens = completion_tokens_future.result()
+                completion_tokens_future = None
+                if prompt_tokens is not None:
+                    assert completion_snapshot_at is not None
+                    assert first_token_at is not None
+                    generation_seconds = max(
+                        completion_snapshot_at - first_token_at, 0.001
                     )
+                    cost_usd = (
+                        prompt_tokens
+                        * pricing.input_usd_per_million_tokens
+                        + completion_tokens
+                        * pricing.output_usd_per_million_tokens
+                    ) / 1_000_000
+                    on_metrics(
+                        StreamMetrics(
+                            ttft_ms=(first_token_at - started_at) * 1000,
+                            tokens_per_second=(
+                                completion_tokens / generation_seconds
+                            ),
+                            prompt_tokens=prompt_tokens,
+                            completion_tokens=completion_tokens,
+                            cost_usd=cost_usd,
+                            is_estimate=True,
+                        )
+                    )
+
+            if (
+                prompt_tokens_future is None
+                and prompt_tokens is not None
+                and completion_tokens_future is None
+                and (
+                    last_metrics_update is None
+                    or now - last_metrics_update >= 0.2
                 )
+            ):
+                completion_tokens_future = _TOKENIZER_EXECUTOR.submit(
+                    _count_tokens, model, response
+                )
+                completion_snapshot_at = now
                 last_metrics_update = now
             yield event.delta_text
 
