@@ -87,6 +87,29 @@ Choose a provider and model, enter a prompt, and submit to stream a response. Th
 
 Set `LLM_GATEWAY_DEMO=1` to add a `Demo` provider that streams a canned response — useful for exercising the UI without API keys.
 
+## Run with Docker
+
+Build the image from the repository root:
+
+```bash
+docker build -t llm-gateway .
+```
+
+Run it with the provider keys from your local `.env` file:
+
+```bash
+docker run --rm -p 8501:8501 --env-file .env llm-gateway
+```
+
+Open [http://localhost:8501](http://localhost:8501). To use the demo provider
+without API keys, run:
+
+```bash
+docker run --rm -p 8501:8501 -e LLM_GATEWAY_DEMO=1 llm-gateway
+```
+
+The `.env` file is passed to the container at runtime and excluded from the Docker build context, so API keys are not copied into the image.
+
 ## Run tests
 
 Run the test suite from the repository root:
