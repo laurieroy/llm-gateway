@@ -3,11 +3,13 @@
 Note:
 I had been using windsurf for a while. It switched to being Devin this summer, and this is my first use of that IDE. The history, as far as I can tell, is not maintained as well as I was used to. So some of these prompts are not recorded verbatim.
 
-I also started the project in VS-code. But on reflection of the requirements, noted that it was not using FastAPI and started over in devin. It built the project similarly, so I merged the two together.
+I had started the project in VS-code, but on reflection of the requirements, noted that it was not using FastAPI and started over in devin. It built the project similarly, so I merged the two together.
 
 Also, turns out I was coming down with a cold so I wasn't thinking as clearly as I should have been.
 
-Log of some of the prompts sent to the AI pair-programmer (Devin, SWE-2) and VS-code (auto)
+Log of some of the prompts sent to the AI pair-programmer (Devin, SWE-2) and VS-code (auto).
+
+I just found out about Simon Willison's Prompt logging [project](https://llm.datasette.io/en/stable/logging.html#logging). I'll use it next time.
 
 ## Initial Prompt
 
